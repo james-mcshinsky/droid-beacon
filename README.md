@@ -14,9 +14,11 @@ all fit together.
 ## Credits And Attribution
 
 This repository is based on the original
-[Droid Toolbox](https://github.com/ruthsarian/droid-toolbox/) by The Forgettable
-Mister Ruthsarian. The original project did the hard work of documenting and
-implementing the Galaxy's Edge droid BLE interactions.
+[Droid Toolbox](https://github.com/ruthsarian/droid-toolbox/) by Ruthsarian.
+The original project did the hard work of documenting and implementing the
+Galaxy's Edge droid BLE interactions. Please check out
+[Ruthsarian's original Droid Toolbox project](https://github.com/ruthsarian/droid-toolbox/)
+and the rest of their work.
 
 This fork keeps that foundation and adds a set of local experiments and quality
 of life features, including PlatformIO setup, Galaxy's Edge wait times, Wi-Fi
@@ -70,14 +72,15 @@ your own risk.
 
 The tested PlatformIO environment in this repository targets:
 
-- LilyGo/TTGO T-Display ESP32
+- [LilyGo/TTGO T-Display ESP32](https://www.lilygo.cc/products/lilygo%C2%AE-ttgo-t-display-1-14-inch-lcd-esp32-control-board)
 - 1.14 inch 135x240 ST7789 LCD
 - ESP32 Dev Module board profile
 - Buttons on GPIO 0 and GPIO 35
 
 The original codebase also contains conditional support for related LilyGo
-T-Display-S3 and AMOLED variants, but the included `platformio.ini` currently
-defines the original T-Display ESP32 environment.
+[T-Display-S3](https://www.lilygo.cc/products/t-display-s3) and AMOLED
+variants, but the included `platformio.ini` currently defines the original
+T-Display ESP32 environment.
 
 You will need:
 
@@ -86,6 +89,23 @@ You will need:
 - PlatformIO, either through VS Code or the CLI.
 - Optional: a battery for portable use.
 - Optional: Wi-Fi credentials if you want wait times.
+
+## Upstream Setup Resources
+
+Ruthsarian's original README collects several helpful board and library links.
+They are worth checking when you are adapting this project to a different board
+or troubleshooting display/library setup:
+
+- [Arduino IDE Software](https://www.arduino.cc/en/software)
+- [ESP32 Core for Arduino](https://github.com/espressif/arduino-esp32)
+- [TFT_eSPI Library](https://github.com/Bodmer/TFT_eSPI)
+- [OpenFontRender](https://github.com/takkaO/OpenFontRender)
+- [LilyGo T-Display GitHub Repository](https://github.com/Xinyuan-LilyGO/TTGO-T-Display)
+  for drivers, setup notes, and sample code
+- [LilyGo T-Display-S3 GitHub Repository](https://github.com/Xinyuan-LilyGO/T-Display-S3/)
+- [LilyGo AMOLED Series GitHub Repository](https://github.com/Xinyuan-LilyGO/LilyGo-AMOLED-Series/)
+- [Original Droid Toolbox setup video](https://www.youtube.com/watch?v=wEwg2-N3HqM)
+- [Original MacOS setup follow-up video](https://www.youtube.com/watch?v=kiu0b0Uf0Nw)
 
 ## Quick Start With PlatformIO
 
