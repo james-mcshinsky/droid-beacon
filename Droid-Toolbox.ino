@@ -1225,6 +1225,7 @@ typedef struct {
   uint8_t  text_padding;
   uint16_t selected_text_color;
   uint16_t selected_border_color;
+  uint8_t  fit_text_size;
   uint16_t ofr_font_size;
   uint16_t ofr_font_height;
   uint16_t row_width;
@@ -1453,6 +1454,9 @@ uint16_t dtb_get_font_height() {
 // calculate the current font height
 uint16_t dtb_get_text_width(const char* msg) {
   static const char test_str[] = "Hy";
+  if (msg == nullptr) {
+    msg = test_str;
+  }
   #ifdef USE_OFR_FONTS
     if (dtb_font != 0) {
       return((uint16_t)(ofr.getTextWidth(msg) & 0x0000FFFF));
@@ -1462,6 +1466,51 @@ uint16_t dtb_get_text_width(const char* msg) {
   #ifdef USE_OFR_FONTS
     }
   #endif
+}
+
+uint16_t dtb_get_effective_draw_width(uint32_t draw_width) {
+  uint16_t viewport_width = tft.getViewportWidth();
+
+  if (viewport_width < 1) {
+    return 1;
+  }
+  if (draw_width > 0 && draw_width < viewport_width) {
+    return (uint16_t)draw_width;
+  }
+  return viewport_width;
+}
+
+uint16_t dtb_get_menu_row_width_limit() {
+  uint16_t viewport_width = tft.getViewportWidth();
+
+  if (viewport_width > 4) {
+    return viewport_width - 4;
+  }
+  return viewport_width;
+}
+
+uint8_t dtb_fit_glcd_text_size(uint8_t text_size, uint16_t width_fit, const char* str) {
+  if (text_size < 1) {
+    text_size = 1;
+  } else if (text_size > 7) {
+    text_size = 7;
+  }
+
+  if (str == nullptr || width_fit < 1) {
+    tft.setTextSize(text_size);
+    return text_size;
+  }
+
+  while (text_size > 1) {
+    tft.setTextSize(text_size);
+    if (tft.textWidth(str) <= width_fit) {
+      return text_size;
+    }
+    text_size--;
+  }
+
+  tft.setTextSize(1);
+  return 1;
 }
 
 // this function is precalculating ofr_font_size and row_width for all lists
@@ -1482,6 +1531,7 @@ uint16_t dtb_get_text_width(const char* msg) {
 void list_calculate_dynamic_font_properties() {
   uint8_t curr_list, curr_item, num_items;
   uint16_t font_height = 0, ofs_tmp;
+  uint16_t list_width_limit = dtb_get_menu_row_width_limit();
 
   #ifdef USE_OFR_FONTS
     SERIAL_PRINT("dtb_font = ");
@@ -1492,6 +1542,7 @@ void list_calculate_dynamic_font_properties() {
   for (curr_list=0; curr_list<NUM_LISTS; curr_list++) {
 
     // initialize the render options we'll be calculating in a bit
+    lists[curr_list].render_options.fit_text_size = lists[curr_list].render_options.text_size;
     lists[curr_list].render_options.ofr_font_size = 0;
     lists[curr_list].render_options.row_width = 0;
 
@@ -1505,10 +1556,14 @@ void list_calculate_dynamic_font_properties() {
       if (dtb_font == 0) {
     #endif
 
-        // no need to calculate ofr_font_size since it won't be used when dtb_font is 0
-        //
-        // we are ignoring max_width completely. the assumption is you've already done your homework.
-        // but perhaps we could dynamically determine font size when dtb_font is 0... later.
+        // Keep a single fitted GLCD size per list so all rows in a menu feel cohesive.
+        for (curr_item=0; curr_item<lists[curr_list].num_items; curr_item++) {
+          ofs_tmp = dtb_fit_glcd_text_size(lists[curr_list].render_options.fit_text_size, list_width_limit, lists[curr_list].items[curr_item]);
+          if (ofs_tmp < lists[curr_list].render_options.fit_text_size) {
+            lists[curr_list].render_options.fit_text_size = ofs_tmp;
+          }
+        }
+        tft.setTextSize(lists[curr_list].render_options.fit_text_size);
 
         // find the list item with the largest width when rendered and record to row_width
         for (curr_item=0; curr_item<lists[curr_list].num_items; curr_item++) {
@@ -1526,7 +1581,7 @@ void list_calculate_dynamic_font_properties() {
           // calculate the font size that would be needed to fit within the dimensions of the viewport width and tft.fontHeight()
           //
           // would caluclateBoundingBox() be a better method?
-          ofs_tmp = ofr.calculateFitFontSize(DEFAULT_TEXT_FIT_WIDTH, tft.fontHeight(), ofr.getLayout(), lists[curr_list].items[curr_item]);
+          ofs_tmp = ofr.calculateFitFontSize(list_width_limit, tft.fontHeight(), ofr.getLayout(), lists[curr_list].items[curr_item]);
 
           // if this value is smaller than what is currently stored, record the font size
           if (lists[curr_list].render_options.ofr_font_size < 1 || ofs_tmp < lists[curr_list].render_options.ofr_font_size) {
@@ -1556,9 +1611,22 @@ void list_calculate_dynamic_font_properties() {
 void dtb_set_font_size(uint8_t text_size, uint16_t width_fit, const char* str) {
 	static const char test_str[] = "Hy";
   uint32_t tmp_size = 0;
+  width_fit = dtb_get_effective_draw_width(width_fit);
 
   if (text_size > 0 && text_size < 8) {
-    tft.setTextSize(text_size);
+    #ifdef USE_OFR_FONTS
+      if (dtb_font == 0 && str != nullptr) {
+        dtb_fit_glcd_text_size(text_size, width_fit, str);
+      } else {
+        tft.setTextSize(text_size);
+      }
+    #else
+      if (str != nullptr) {
+        dtb_fit_glcd_text_size(text_size, width_fit, str);
+      } else {
+        tft.setTextSize(text_size);
+      }
+    #endif
   }
 
   #ifdef USE_OFR_FONTS
@@ -1583,6 +1651,9 @@ void dtb_set_font_size(uint8_t text_size, uint16_t width_fit, const char* str) {
         // readajust tmp_size if we're doing the bug workaround
         if (text_size == 1) {
           tmp_size = tmp_size / 2;
+        }
+        if (tmp_size < 1) {
+          tmp_size = 1;
         }
         ofr.setFontSize(tmp_size);
       }
@@ -1641,6 +1712,11 @@ void set_ofr_alignment_by_datum(uint8_t d) {
 //
 void dtb_draw_string(const char* str, int32_t draw_x, int32_t draw_y, uint32_t draw_width, uint16_t text_size, uint16_t text_color, uint8_t text_datum) {
   uint8_t height_offset = 0;
+  uint16_t fit_width = dtb_get_effective_draw_width(draw_width);
+
+  if (str == nullptr) {
+    return;
+  }
 
   // if text_size is 0 then assume the font has already been set outside of this function and it just needs to be drawn.
   if (text_size > 0) {
@@ -1650,12 +1726,18 @@ void dtb_draw_string(const char* str, int32_t draw_x, int32_t draw_y, uint32_t d
 
     #ifdef USE_OFR_FONTS
       // if text_size is less than 8 assume it's a GLCD multiplier, otherwise assume it's a pixel height for use with OFR
-      if (dtb_font == 0 || text_size < 8) {
+      if (dtb_font == 0) {
     #endif
 
-        tft.setTextSize((uint8_t)(text_size & 0x00FF));
+        if (draw_width > 0) {
+          dtb_fit_glcd_text_size((uint8_t)(text_size & 0x00FF), fit_width, str);
+        } else {
+          tft.setTextSize((uint8_t)(text_size & 0x00FF));
+        }
 
     #ifdef USE_OFR_FONTS
+      } else if (text_size < 8) {
+        tft.setTextSize((uint8_t)(text_size & 0x00FF));
       }
     #endif
   }
@@ -1691,9 +1773,9 @@ void dtb_draw_string(const char* str, int32_t draw_x, int32_t draw_y, uint32_t d
       if (text_size < 8) {
 
         if (dtb_fonts[dtb_font - 1].y_scale != 1) {
-          ofr.setFontSize(ofr.calculateFitFontSize(draw_width, (uint32_t)(tft.fontHeight() * dtb_fonts[dtb_font - 1].y_scale), ofr.getLayout(), str));
+          ofr.setFontSize(ofr.calculateFitFontSize(fit_width, (uint32_t)(tft.fontHeight() * dtb_fonts[dtb_font - 1].y_scale), ofr.getLayout(), str));
         } else {
-          ofr.setFontSize(ofr.calculateFitFontSize(draw_width, tft.fontHeight(), ofr.getLayout(), str));
+          ofr.setFontSize(ofr.calculateFitFontSize(fit_width, tft.fontHeight(), ofr.getLayout(), str));
         }
 
         // so this is dumb. some TTF fonts don't behave as expected with ofr.calculateFitFontSize() and the 
@@ -1712,6 +1794,9 @@ void dtb_draw_string(const char* str, int32_t draw_x, int32_t draw_y, uint32_t d
       // else assume text_size is a pixel height
       } else {
         ofr.setFontSize(text_size);
+        if (draw_width > 0 && ofr.getTextWidth(str) > fit_width) {
+          ofr.setFontSize(ofr.calculateFitFontSize(fit_width, dtb_get_font_height(), ofr.getLayout(), str));
+        }
       }
     }
 
@@ -2641,9 +2726,14 @@ void flush_display(void) {
 
 //void display_list(const char **items, uint8_t num_items) {
 void display_list(uint8_t list_index) {
-  uint8_t rows, row_padding, max_padding, i;
-  uint16_t row_height, row_width, text_color, font_height;
+  uint8_t rows, row_padding, max_padding, i, menu_text_size;
+  uint16_t row_height, row_width, text_color, font_height, max_row_width, view_height;
   int16_t  y = 0;
+
+  menu_text_size = lists[list_index].render_options.fit_text_size;
+  if (menu_text_size < 1) {
+    menu_text_size = lists[list_index].render_options.text_size;
+  }
 
   // get the pixel height of the font
   #ifdef USE_OFR_FONTS
@@ -2654,8 +2744,8 @@ void display_list(uint8_t list_index) {
     } else {
   #endif
       SERIAL_PRINT("text_size: ");
-      SERIAL_PRINTLN(lists[list_index].render_options.text_size);
-      tft.setTextSize(lists[list_index].render_options.text_size);
+      SERIAL_PRINTLN(menu_text_size);
+      tft.setTextSize(menu_text_size);
       font_height = tft.fontHeight();
   #ifdef USE_OFR_FONTS
     }
@@ -2670,7 +2760,12 @@ void display_list(uint8_t list_index) {
   //
   // divide the available space by 6; padding top/bottom of each item (4) + leave an extra gap at the very top and very bottom
   row_padding = lists[list_index].render_options.text_padding;
-  max_padding = (tft.getViewportHeight() - (font_height * 2))/6;
+  view_height = tft.getViewportHeight();
+  if (view_height <= (font_height * 2)) {
+    max_padding = 0;
+  } else {
+    max_padding = (view_height - (font_height * 2))/6;
+  }
   if (max_padding < 1) {
     row_padding = 0;
   } else if (max_padding < row_padding) {
@@ -2679,6 +2774,9 @@ void display_list(uint8_t list_index) {
 
   // calculate how tall each row will be; font height + top and bottom padding + border width
   row_height = font_height + (row_padding * 2);
+  if (row_height < 1) {
+    row_height = 1;
+  }
 
   SERIAL_PRINT("row_height: ");
   SERIAL_PRINTLN(row_height);
@@ -2688,17 +2786,27 @@ void display_list(uint8_t list_index) {
   SERIAL_PRINTLN(row_padding);
 
   // calculate how many rows will fit within the screen
-  rows = tft.getViewportHeight() / row_height;
+  rows = view_height / row_height;
+  if (rows < 1) {
+    rows = 1;
+  }
 
   // pickup the precalculated row_width
   row_width = lists[list_index].render_options.row_width;
+  max_row_width = dtb_get_menu_row_width_limit();
 
   // add some horizontal padding, if there's room for it.
   //
   // should calculate a tft.getViewPortWidth() value earlier in this function
   // which has side gutter space subtracted ahead of time...
-  if (row_width < tft.getViewportWidth()) {
-    row_width = row_width + ((tft.getViewportWidth() - row_width)/4);
+  if (row_width < max_row_width) {
+    row_width = row_width + ((max_row_width - row_width)/4);
+  }
+  if (row_width > max_row_width) {
+    row_width = max_row_width;
+  }
+  if (row_width < 1) {
+    row_width = 1;
   }
 
   // LIST RENDERING METHODOLOGY:
@@ -2710,9 +2818,14 @@ void display_list(uint8_t list_index) {
 
   // is the list larger than the screen?
   if (lists[list_index].num_items > rows && rows >= 1)  {
+    uint16_t visible_span = 0;
+
+    if (view_height > row_height) {
+      visible_span = view_height - row_height;
+    }
 
     // where should the selected item appear on screen?
-    y = ((tft.getViewportHeight() - row_height) / (lists[list_index].num_items - 1)) * selected_item;
+    y = (visible_span / (lists[list_index].num_items - 1)) * selected_item;
 
     // where should the list start on (or off) screen in order to put the selected item at the 
     // previously calculated location?
@@ -2720,9 +2833,14 @@ void display_list(uint8_t list_index) {
 
   // entire list will fit on the screen, vertically center it
   } else {
+    uint32_t list_height = (uint32_t)row_height * lists[list_index].num_items;
 
     // y is set to where the top of the first menu item will be rendered
-    y = (tft.getViewportHeight() - (row_height * lists[list_index].num_items))/2;
+    if (list_height < view_height) {
+      y = (view_height - list_height)/2;
+    } else {
+      y = 0;
+    }
   }
 
   // draw the list, starting at the previously calculated position (y)
@@ -2754,7 +2872,7 @@ void display_list(uint8_t list_index) {
     if (lists[list_index].render_options.ofr_font_size != 0) {
       dtb_draw_string(lists[list_index].items[i], tft.getViewportWidth()/2,  y + row_padding + 1, row_width, lists[list_index].render_options.ofr_font_size, text_color, TC_DATUM);   // TC_DATUM
     } else {
-      dtb_draw_string(lists[list_index].items[i], tft.getViewportWidth()/2,  y + row_padding + 1, row_width, lists[list_index].render_options.text_size, text_color, TC_DATUM);       // TC_DATUM
+      dtb_draw_string(lists[list_index].items[i], tft.getViewportWidth()/2,  y + row_padding + 1, row_width, menu_text_size, text_color, TC_DATUM);       // TC_DATUM
     }
 
     // increment y for the next list item
@@ -2766,7 +2884,7 @@ void display_captioned_menu(const char* caption, uint8_t list_index) {
   uint8_t h;
 
   // draw menu caption
-  dtb_draw_string(caption, tft.width()/2, MENU_SELECT_CAPTION_TEXT_PADDING, DEFAULT_TEXT_FIT_WIDTH, MENU_SELECT_CAPTION_TEXT_SIZE, MENU_SELECT_CAPTION_TEXT_COLOR, TC_DATUM);
+  dtb_draw_string(caption, tft.width()/2, MENU_SELECT_CAPTION_TEXT_PADDING, dtb_get_menu_row_width_limit(), MENU_SELECT_CAPTION_TEXT_SIZE, MENU_SELECT_CAPTION_TEXT_COLOR, TC_DATUM);
 
   // calculate viewport dimensions for subsequent menu
   h = tft.fontHeight() + (MENU_SELECT_CAPTION_TEXT_PADDING * 2);
@@ -3161,7 +3279,7 @@ void trivia_pick_random() {
 uint16_t draw_wrapped_text(const char* text, int16_t x, int16_t y, int16_t w, uint8_t text_size, uint16_t color, uint8_t max_lines) {
   char line[TRIVIA_LINE_MAX];
   char candidate[TRIVIA_LINE_MAX];
-  char word[32];
+  char word[TRIVIA_LINE_MAX];
   uint8_t word_len = 0;
   uint8_t lines = 0;
   uint16_t line_height;
@@ -3170,13 +3288,8 @@ uint16_t draw_wrapped_text(const char* text, int16_t x, int16_t y, int16_t w, ui
 
   line[0] = '\0';
   tft.setTextDatum(TL_DATUM);
-  tft.setTextSize(text_size);
+  dtb_set_font_size(text_size, w, nullptr);
   tft.setTextColor(color, TFT_BLACK, true);
-  #ifdef USE_OFR_FONTS
-    if (dtb_font != 0) {
-      dtb_set_font_size(text_size, w, nullptr);
-    }
-  #endif
   line_height = dtb_get_font_height() + 2;
   len = strlen(text);
 
@@ -3197,7 +3310,8 @@ uint16_t draw_wrapped_text(const char* text, int16_t x, int16_t y, int16_t w, ui
       }
 
       if (line[0] != '\0' && dtb_get_text_width(candidate) > w) {
-        dtb_draw_string(line, x, y, w, 0, color, TL_DATUM);
+        dtb_draw_string(line, x, y, w, text_size, color, TL_DATUM);
+        dtb_set_font_size(text_size, w, nullptr);
         y += line_height;
         lines++;
         if (lines >= max_lines) {
@@ -3212,7 +3326,8 @@ uint16_t draw_wrapped_text(const char* text, int16_t x, int16_t y, int16_t w, ui
 
     if (c == '\n' || c == '\0') {
       if (line[0] != '\0') {
-        dtb_draw_string(line, x, y, w, 0, color, TL_DATUM);
+        dtb_draw_string(line, x, y, w, text_size, color, TL_DATUM);
+        dtb_set_font_size(text_size, w, nullptr);
         y += line_height;
         lines++;
         line[0] = '\0';
@@ -3564,6 +3679,7 @@ uint16_t draw_beacon_expert_line(uint16_t y, const char* label, const char* valu
   char label_msg[MSG_LEN_MAX];
   uint16_t label_width;
   uint16_t view_width = tft.getViewportWidth();
+  uint16_t line_height;
 
   if (view_width < 8) {
     return y;
@@ -3576,15 +3692,16 @@ uint16_t draw_beacon_expert_line(uint16_t y, const char* label, const char* valu
       dtb_set_font_size(BEACON_EXPERT_TEXT_SIZE, view_width, nullptr);
     }
   #endif
+  line_height = dtb_get_font_height() + 2;
 
   label_width = dtb_get_text_width(label_msg);
   if (label_width > view_width - 8) {
     label_width = view_width / 2;
   }
 
-  dtb_draw_string(label_msg, 0, y, view_width, 0, BEACON_EXPERT_LABEL_COLOR, TL_DATUM);
-  dtb_draw_string(value, label_width, y, view_width - label_width, 0, value_color, TL_DATUM);
-  return y + dtb_get_font_height() + 2;
+  dtb_draw_string(label_msg, 0, y, label_width, BEACON_EXPERT_TEXT_SIZE, BEACON_EXPERT_LABEL_COLOR, TL_DATUM);
+  dtb_draw_string(value, label_width, y, view_width - label_width, BEACON_EXPERT_TEXT_SIZE, value_color, TL_DATUM);
+  return y + line_height;
 }
 
 void display_beacon_expert() {
@@ -3773,7 +3890,7 @@ void sneaky_beacon_countdown() {
         //
         // also, when i make a rotating beacon inactive, should i reset the timer when i make it active again? (probably)
         tft.setTextDatum(BR_DATUM);
-        tft.setTextSize(BEACON_CONTROL_COUNTDOWN_SIZE);
+        dtb_fit_glcd_text_size(BEACON_CONTROL_COUNTDOWN_SIZE, tft.getViewportWidth(), msg);
         tft.setTextColor(BEACON_CONTROL_COUNTDOWN_COLOR, TFT_BLACK, true);
         tft.drawString(msg, tft.getViewportWidth(), tft.getViewportHeight());
 

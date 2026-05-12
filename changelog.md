@@ -25,6 +25,9 @@ Changelog format is based on [Keep a Changelog](https://keepachangelog.com/en/1.
 
 - Local Wi-Fi credentials are kept in ignored `secrets.h`; only
   `secrets.example.h` should be published.
+- Menu and status text now auto-fits within the display; menu sections use a
+  shared fitted text size and long trivia/status lines wrap or shrink instead
+  of clipping off-screen.
 - Reorganizing the code by breaking it up into several, smaller files with
   each one containing shared functionality (ble.c, beacons.c, menus.c, etc.)
 
