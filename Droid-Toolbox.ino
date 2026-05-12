@@ -428,7 +428,7 @@ personality_t droid_personalities[] = {
 };
 
 #define DROID_PERSONALITIES_SIZE sizeof(droid_personalities)/sizeof(personality_t)
-personality_t** emulatable_personalities;
+personality_t* emulatable_personalities[DROID_PERSONALITIES_SIZE];
 uint8_t emulatable_personalities_size;
 
 typedef struct {
@@ -1264,6 +1264,16 @@ typedef struct {
 // lists will be loaded via the load_lists() function. 
 list_t lists[NUM_LISTS];
 
+#define LIST_RENDER_CACHE_COUNT 2
+typedef struct {
+  bool valid;
+  uint8_t font_id;
+  uint16_t width_limit;
+  list_render_options_t render_options[NUM_LISTS];
+} list_render_cache_t;
+
+list_render_cache_t list_render_cache[LIST_RENDER_CACHE_COUNT];
+
   int8_t droid_volume = 100;          // there is no way to 'read' the current volume setting, so we'll keep track with a variable and assume it starts at full (100) volume
  uint8_t selected_item = 0;           // keep track of the currently selected option when displaying menus, options, etc.
  uint8_t beacon_rotate_interval = 6;  // this value, multiplied by 10, defines the number of seconds before the current beacon changes; when set to 0 the beacon rotation feature is disabled
@@ -1305,12 +1315,20 @@ int8_t button_pins[] = {BUTTON1_PIN, BUTTON2_PIN};  // make the IO pins for butt
 //
 void list_init() {
   uint8_t i;
+  static const char* top_menu_items[sizeof(top_menu) / sizeof(menu_item_t)];
+  static const char* beacon_type_menu_items[sizeof(beacon_type_menu) / sizeof(menu_item_t)];
+  static const char* connected_menu_items[sizeof(connected_menu) / sizeof(menu_item_t)];
+  static const char* location_items[LOCATIONS_SIZE];
+  static const char* personality_items[DROID_PERSONALITIES_SIZE];
+  static const char* datapad_items[DATAPADS_SIZE];
+  static const char* settings_menu_items[sizeof(settings_menu) / sizeof(menu_item_t)];
+  static const char* screensaver_menu_items[sizeof(screensaver_menu) / sizeof(menu_item_t)];
 
   // populate TOP MENU list
 
   // calculate num_items and allocate memory for items
   lists[LIST_TOP_MENU].num_items = sizeof(top_menu) / sizeof(menu_item_t);
-  lists[LIST_TOP_MENU].items = (const char**)malloc(sizeof(char*) * lists[LIST_TOP_MENU].num_items);
+  lists[LIST_TOP_MENU].items = top_menu_items;
 
   // populate items
   for (i=0; i<lists[LIST_TOP_MENU].num_items; i++) {
@@ -1333,7 +1351,7 @@ void list_init() {
 
   // populate BEACON TYPE MENU list
   lists[LIST_BEACON_TYPE_MENU].num_items = sizeof(beacon_type_menu) / sizeof(menu_item_t);
-  lists[LIST_BEACON_TYPE_MENU].items = (const char**)malloc(sizeof(char*) * lists[LIST_BEACON_TYPE_MENU].num_items);
+  lists[LIST_BEACON_TYPE_MENU].items = beacon_type_menu_items;
   for (i=0; i<lists[LIST_BEACON_TYPE_MENU].num_items; i++) {
     lists[LIST_BEACON_TYPE_MENU].items[i] = beacon_type_menu[i].text;
   }
@@ -1348,7 +1366,7 @@ void list_init() {
 
   // populate CONNECTED MENU list
   lists[LIST_CONNECTED_MENU].num_items = sizeof(connected_menu) / sizeof(menu_item_t);
-  lists[LIST_CONNECTED_MENU].items = (const char**)malloc(sizeof(char*) * lists[LIST_CONNECTED_MENU].num_items);
+  lists[LIST_CONNECTED_MENU].items = connected_menu_items;
   for (i=0; i<lists[LIST_CONNECTED_MENU].num_items; i++) {
     lists[LIST_CONNECTED_MENU].items[i] = connected_menu[i].text;
   }
@@ -1363,7 +1381,7 @@ void list_init() {
 
   // populate LOCATIONS list
   lists[LIST_LOCATIONS].num_items = LOCATIONS_SIZE;
-  lists[LIST_LOCATIONS].items = (const char**)malloc(sizeof(char*) * lists[LIST_LOCATIONS].num_items);
+  lists[LIST_LOCATIONS].items = location_items;
   for (i=0; i<lists[LIST_LOCATIONS].num_items; i++) {
     lists[LIST_LOCATIONS].items[i] = locations[i].name;
   }
@@ -1378,7 +1396,7 @@ void list_init() {
 
   // populate DROID PERSONALITIES list
   lists[LIST_PERSONALITIES].num_items = DROID_PERSONALITIES_SIZE;
-  lists[LIST_PERSONALITIES].items = (const char**)malloc(sizeof(char*) * lists[LIST_PERSONALITIES].num_items);
+  lists[LIST_PERSONALITIES].items = personality_items;
   for (i=0; i<lists[LIST_PERSONALITIES].num_items; i++) {
     lists[LIST_PERSONALITIES].items[i] = droid_personalities[i].name;
   }
@@ -1393,7 +1411,7 @@ void list_init() {
 
   // populate DATAPADS (iBeacon) list
   lists[LIST_DATAPADS].num_items = DATAPADS_SIZE;
-  lists[LIST_DATAPADS].items = (const char**)malloc(sizeof(char*) * lists[LIST_DATAPADS].num_items);
+  lists[LIST_DATAPADS].items = datapad_items;
   for (i=0; i<lists[LIST_DATAPADS].num_items; i++) {
     lists[LIST_DATAPADS].items[i] = datapads[i].name;
   }
@@ -1408,7 +1426,7 @@ void list_init() {
 
   // populate SETTINGS MENU list
   lists[LIST_SETTINGS_MENU].num_items = sizeof(settings_menu) / sizeof(menu_item_t);
-  lists[LIST_SETTINGS_MENU].items = (const char**)malloc(sizeof(char*) * lists[LIST_SETTINGS_MENU].num_items);
+  lists[LIST_SETTINGS_MENU].items = settings_menu_items;
   for (i=0; i<lists[LIST_SETTINGS_MENU].num_items; i++) {
     lists[LIST_SETTINGS_MENU].items[i] = settings_menu[i].text;
   }
@@ -1423,7 +1441,7 @@ void list_init() {
 
   // populate SCREENSAVER MENU list
   lists[LIST_SCREENSAVER_MENU].num_items = sizeof(screensaver_menu) / sizeof(menu_item_t);
-  lists[LIST_SCREENSAVER_MENU].items = (const char**)malloc(sizeof(char*) * lists[LIST_SCREENSAVER_MENU].num_items);
+  lists[LIST_SCREENSAVER_MENU].items = screensaver_menu_items;
   for (i=0; i<lists[LIST_SCREENSAVER_MENU].num_items; i++) {
     lists[LIST_SCREENSAVER_MENU].items[i] = screensaver_menu[i].text;
   }
@@ -1489,6 +1507,59 @@ uint16_t dtb_get_menu_row_width_limit() {
   return viewport_width;
 }
 
+uint16_t dtb_get_screen_menu_row_width_limit() {
+  uint16_t screen_width = tft.width();
+
+  if (screen_width > 4) {
+    return screen_width - 4;
+  }
+  return screen_width;
+}
+
+uint8_t list_current_font_id() {
+  #ifdef USE_OFR_FONTS
+    return dtb_font;
+  #else
+    return 0;
+  #endif
+}
+
+bool list_restore_cached_render_options(uint8_t font_id, uint16_t width_limit) {
+  uint8_t cache_idx, list_idx;
+
+  for (cache_idx = 0; cache_idx < LIST_RENDER_CACHE_COUNT; cache_idx++) {
+    if (list_render_cache[cache_idx].valid &&
+        list_render_cache[cache_idx].font_id == font_id &&
+        list_render_cache[cache_idx].width_limit == width_limit) {
+      for (list_idx = 0; list_idx < NUM_LISTS; list_idx++) {
+        lists[list_idx].render_options = list_render_cache[cache_idx].render_options[list_idx];
+      }
+      return true;
+    }
+  }
+
+  return false;
+}
+
+void list_store_render_cache(uint8_t font_id, uint16_t width_limit) {
+  uint8_t cache_idx, list_idx, target_idx = 0;
+
+  for (cache_idx = 0; cache_idx < LIST_RENDER_CACHE_COUNT; cache_idx++) {
+    if (!list_render_cache[cache_idx].valid ||
+        list_render_cache[cache_idx].font_id == font_id) {
+      target_idx = cache_idx;
+      break;
+    }
+  }
+
+  list_render_cache[target_idx].valid = true;
+  list_render_cache[target_idx].font_id = font_id;
+  list_render_cache[target_idx].width_limit = width_limit;
+  for (list_idx = 0; list_idx < NUM_LISTS; list_idx++) {
+    list_render_cache[target_idx].render_options[list_idx] = lists[list_idx].render_options;
+  }
+}
+
 uint8_t dtb_fit_glcd_text_size(uint8_t text_size, uint16_t width_fit, const char* str) {
   if (text_size < 1) {
     text_size = 1;
@@ -1529,14 +1600,19 @@ uint8_t dtb_fit_glcd_text_size(uint8_t text_size, uint16_t width_fit, const char
 //
 // the ofr font should already be loaded at this point
 void list_calculate_dynamic_font_properties() {
-  uint8_t curr_list, curr_item, num_items;
+  uint8_t curr_list, curr_item;
   uint16_t font_height = 0, ofs_tmp;
-  uint16_t list_width_limit = dtb_get_menu_row_width_limit();
+  uint8_t font_id = list_current_font_id();
+  uint16_t list_width_limit = dtb_get_screen_menu_row_width_limit();
 
   #ifdef USE_OFR_FONTS
     SERIAL_PRINT("dtb_font = ");
     SERIAL_PRINTLN(dtb_font);
   #endif
+
+  if (list_restore_cached_render_options(font_id, list_width_limit)) {
+    return;
+  }
 
   // loop through all lists
   for (curr_list=0; curr_list<NUM_LISTS; curr_list++) {
@@ -1567,8 +1643,9 @@ void list_calculate_dynamic_font_properties() {
 
         // find the list item with the largest width when rendered and record to row_width
         for (curr_item=0; curr_item<lists[curr_list].num_items; curr_item++) {
-          if (tft.textWidth(lists[curr_list].items[curr_item]) > lists[curr_list].render_options.row_width) {
-            lists[curr_list].render_options.row_width = tft.textWidth(lists[curr_list].items[curr_item]);
+          ofs_tmp = tft.textWidth(lists[curr_list].items[curr_item]);
+          if (ofs_tmp > lists[curr_list].render_options.row_width) {
+            lists[curr_list].render_options.row_width = ofs_tmp;
           }
         }
 
@@ -1605,6 +1682,8 @@ void list_calculate_dynamic_font_properties() {
       }
     #endif
   }
+
+  list_store_render_cache(font_id, list_width_limit);
 }
 
 // calculate and set the font size
@@ -1822,16 +1901,25 @@ void dtb_draw_string(const char* str, int32_t draw_x, int32_t draw_y, uint32_t d
 void dtb_load_font() {
 
   #ifdef USE_OFR_FONTS
+    static uint8_t loaded_ofr_font = 0;
 
-    // load the new font
-    ofr.unloadFont();
     if (dtb_font > NUM_FONTS) {
       dtb_font = DEFAULT_DTB_FONT;
     }
-    if (dtb_font != 0 && ofr.loadFont(dtb_fonts[dtb_font - 1].data, dtb_fonts[dtb_font - 1].size)) {
-      dtb_font = DEFAULT_DTB_FONT;
-      if (dtb_font != 0 && ofr.loadFont(dtb_fonts[dtb_font - 1].data, dtb_fonts[dtb_font - 1].size)) {
-        dtb_font = 0;
+
+    // Keep the most recent OFR font resident. The normal readable font is GLCD,
+    // so unloading/reloading Aurabesh on every decode transition only adds latency.
+    if (dtb_font != 0 && loaded_ofr_font != dtb_font) {
+      ofr.unloadFont();
+      loaded_ofr_font = 0;
+      if (ofr.loadFont(dtb_fonts[dtb_font - 1].data, dtb_fonts[dtb_font - 1].size)) {
+        dtb_font = DEFAULT_DTB_FONT;
+        if (dtb_font != 0 && ofr.loadFont(dtb_fonts[dtb_font - 1].data, dtb_fonts[dtb_font - 1].size)) {
+          dtb_font = 0;
+        }
+      }
+      if (dtb_font != 0) {
+        loaded_ofr_font = dtb_font;
       }
     }
 
@@ -2102,6 +2190,7 @@ void set_payload_from_beacon() {
   #if ESP_ARDUINO_VERSION_MAJOR >= 3
     // new code
     String payload_wstr;
+    payload_wstr.reserve(payload_len);
     for(uint8_t i=0;i<payload_len;i++) {
       payload_wstr += (char)payload[i];
     }
@@ -2387,10 +2476,8 @@ void droid_set_volume() {
   static uint8_t cmd_set_volume[] = { 0x27, 0x42, 0x0f, 0x44, 0x44, 0x00, 0x0e, 0x1f };
 
   if (pClient->isConnected() && pRemoteCharacteristicCmd != nullptr) {
-    cmd_set_volume[7] = (uint8_t)((float)droid_volume / 3.2); // where's the 3.2 come from? 
-                                                              // assumed good values for volume are 0x00 - 0x1f (31).
-                                                              // 100 / 31 = 3.2 (ish)
-                                                              // the 0 to 100 volume scale is just cosmetic
+    // Droid volume uses 0x00-0x1f; keep this integer-only for quicker command handling.
+    cmd_set_volume[7] = (uint8_t)((droid_volume * 31 + 50) / 100);
 
     SERIAL_PRINT("New volume: 0x");
     SERIAL_PRINTLN2(cmd_set_volume[7], HEX);
@@ -2526,15 +2613,36 @@ bool wifi_connect_known() {
   return false;
 }
 
-bool read_json_bool_field(const String& json, int start, int end, const char* field, bool& value) {
-  String marker = String("\"") + field + "\":";
-  int pos = json.indexOf(marker, start);
+int json_field_value_pos(const String& json, int start, int end, const char* field, bool string_value) {
+  char marker[48];
+  int marker_len;
+  int pos;
 
+  marker_len = snprintf(marker, sizeof(marker), string_value ? "\"%s\":\"" : "\"%s\":", field);
+  if (marker_len < 1 || marker_len >= (int)sizeof(marker)) {
+    return -1;
+  }
+
+  pos = json.indexOf(marker, start);
   if (pos < 0 || pos > end) {
+    return -1;
+  }
+
+  pos += marker_len;
+  if (pos > end) {
+    return -1;
+  }
+
+  return pos;
+}
+
+bool read_json_bool_field(const String& json, int start, int end, const char* field, bool& value) {
+  int pos = json_field_value_pos(json, start, end, field, false);
+
+  if (pos < 0) {
     return false;
   }
 
-  pos += marker.length();
   if (json.startsWith("true", pos)) {
     value = true;
     return true;
@@ -2548,35 +2656,41 @@ bool read_json_bool_field(const String& json, int start, int end, const char* fi
 }
 
 bool read_json_int_field(const String& json, int start, int end, const char* field, int16_t& value) {
-  String marker = String("\"") + field + "\":";
-  int pos = json.indexOf(marker, start);
-  int value_end;
+  int pos = json_field_value_pos(json, start, end, field, false);
+  int32_t parsed_value = 0;
+  bool negative = false;
 
-  if (pos < 0 || pos > end) {
+  if (pos < 0) {
     return false;
   }
 
-  pos += marker.length();
-  value_end = pos;
-  while (value_end <= end && (isDigit(json[value_end]) || json[value_end] == '-')) {
-    value_end++;
+  if (json[pos] == '-') {
+    negative = true;
+    pos++;
   }
 
-  value = (int16_t)json.substring(pos, value_end).toInt();
+  if (pos > end || !isDigit(json[pos])) {
+    return false;
+  }
+
+  while (pos <= end && isDigit(json[pos])) {
+    parsed_value = (parsed_value * 10) + (json[pos] - '0');
+    pos++;
+  }
+
+  value = (int16_t)(negative ? -parsed_value : parsed_value);
   return true;
 }
 
 bool read_json_string_field(const String& json, int start, int end, const char* field, char* value, size_t value_size) {
-  String marker = String("\"") + field + "\":\"";
-  int pos = json.indexOf(marker, start);
+  int pos = json_field_value_pos(json, start, end, field, true);
   int value_end;
   size_t copy_len;
 
-  if (pos < 0 || pos > end || value_size < 1) {
+  if (pos < 0 || value_size < 1) {
     return false;
   }
 
-  pos += marker.length();
   value_end = json.indexOf("\"", pos);
   if (value_end < 0 || value_end > end) {
     return false;
@@ -2593,10 +2707,18 @@ bool read_json_string_field(const String& json, int start, int end, const char* 
 }
 
 bool parse_wait_time_ride(const String& json, wait_time_ride_t& ride) {
-  String name_marker = String("\"name\":\"") + ride.name + "\"";
-  int name_pos = json.indexOf(name_marker);
+  char name_marker[128];
+  int marker_len;
+  int name_pos;
   int ride_start;
   int ride_end;
+
+  marker_len = snprintf(name_marker, sizeof(name_marker), "\"name\":\"%s\"", ride.name);
+  if (marker_len < 1 || marker_len >= (int)sizeof(name_marker)) {
+    return false;
+  }
+
+  name_pos = json.indexOf(name_marker);
 
   if (name_pos < 0) {
     return false;
@@ -2685,6 +2807,9 @@ void fetch_wait_times() {
       continue;
     }
 
+    if (http.getSize() > 0) {
+      response.reserve(http.getSize() + 1);
+    }
     response = http.getString();
     http.end();
 
@@ -3372,13 +3497,15 @@ bool is_screensaver_state() {
 
 void draw_screensaver_stars(uint16_t frame, uint8_t count) {
   uint8_t i;
+  int16_t view_width = max((int16_t)1, (int16_t)tft.getViewportWidth());
+  int16_t view_height = max((int16_t)1, (int16_t)tft.getViewportHeight());
   int16_t x;
   int16_t y;
   uint16_t c;
 
   for (i = 0; i < count; i++) {
-    x = (int16_t)((i * 47 + frame * 3) % tft.getViewportWidth());
-    y = (int16_t)((i * 29 + frame) % tft.getViewportHeight());
+    x = (int16_t)((i * 47 + frame * 3) % view_width);
+    y = (int16_t)((i * 29 + frame) % view_height);
     c = (i % 5 == 0) ? C565(120, 160, 220) : C565(90, 90, 110);
     tft.drawPixel(x, y, c);
   }
@@ -4052,11 +4179,13 @@ void draw_decode_fizz(uint8_t frame) {
   int16_t x;
   int16_t y;
   int16_t w;
+  int16_t view_width = max((int16_t)1, (int16_t)tft.getViewportWidth());
+  int16_t view_height = max((int16_t)1, (int16_t)tft.getViewportHeight());
   uint16_t color;
 
   for (i = 0; i < DECODE_FIZZ_SPECKS; i++) {
-    x = esp_random() % max((int16_t)1, (int16_t)tft.getViewportWidth());
-    y = esp_random() % max((int16_t)1, (int16_t)tft.getViewportHeight());
+    x = esp_random() % view_width;
+    y = esp_random() % view_height;
     color = (i % 5 == 0) ? TFT_WHITE : ((i % 2 == 0) ? TFT_DARKGREY : C565(40, 120, 90));
 
     if ((i + frame) % 4 == 0) {
@@ -5166,19 +5295,6 @@ void setup() {
   }
 
   // populate emulatable_personalities array
-  emulatable_personalities_size = 0;
-
-  // how many personalities are available for emulation?
-  for (i=0; i<DROID_PERSONALITIES_SIZE; i++) {
-    if (droid_personalities[i].emulatable != 0) {
-      emulatable_personalities_size++;
-    }
-  }
-
-  // allocate memory for the pointers
-  emulatable_personalities = (personality_t**)malloc(sizeof(personality_t*) * emulatable_personalities_size);
-
-  // assign pointers to members of droid_personalities[]
   emulatable_personalities_size = 0;
   for (i=0; i<DROID_PERSONALITIES_SIZE; i++) {
     if (droid_personalities[i].emulatable != 0) {

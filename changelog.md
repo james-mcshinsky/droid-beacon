@@ -28,6 +28,9 @@ Changelog format is based on [Keep a Changelog](https://keepachangelog.com/en/1.
 - Menu and status text now auto-fits within the display; menu sections use a
   shared fitted text size and long trivia/status lines wrap or shrink instead
   of clipping off-screen.
+- Improved runtime performance on ESP32 hardware by caching menu/font metrics,
+  avoiding startup heap allocation for menu lists, reducing temporary JSON
+  parser strings, and keeping volume command math integer-only.
 - Reorganizing the code by breaking it up into several, smaller files with
   each one containing shared functionality (ble.c, beacons.c, menus.c, etc.)
 
