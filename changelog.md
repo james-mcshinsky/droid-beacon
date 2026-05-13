@@ -10,7 +10,11 @@ Changelog format is based on [Keep a Changelog](https://keepachangelog.com/en/1.
 
 ## [Unreleased]
 
-- No unreleased changes.
+### Added
+
+- Battery status in Settings with charge percentage, voltage, and estimated
+  time to empty.
+- Manual deep sleep shortcut by holding Button 2 for 10 seconds.
 
 ## [0.83.3-jm1] - 2026-05-12
 

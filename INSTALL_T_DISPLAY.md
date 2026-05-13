@@ -59,11 +59,15 @@ If Wi-Fi is not configured, the wait-times screen will show `WIFI NOT SET`.
 
 The firmware also has a `SETTINGS` top-level menu with:
 
+- `BATTERY` - shows charge percentage, voltage, and a rough time-to-empty estimate.
 - `WIFI CONNECT` - tries the configured networks in order.
 - `WIFI STATUS` - shows connection state, SSID, and IP address.
 - `WIFI OFF` - disconnects and turns off Wi-Fi.
 
 When the wait-times screen needs network access it will auto-connect to the same configured networks.
+
+Hold Button 2 for 10 seconds from any screen to put the device into deep sleep.
+Wake it again with Button 1 or the reset button.
 
 ## Trivia
 

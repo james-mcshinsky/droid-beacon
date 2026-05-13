@@ -184,7 +184,7 @@
 
 // CUSTOMIZATIONS BEGIN -- These values can be changed to alter Droid Toolbox's behavior.
 
-#define MSG_VERSION                         "v0.83.3-jm1"           // the version displayed on the splash screen at the lower right; β
+#define MSG_VERSION                         "v0.83.4-jm2"           // the version displayed on the splash screen at the lower right; β
 
 #ifdef LILYGO_AMOLED
   #define DEFAULT_TEXT_SIZE                 3
@@ -273,6 +273,14 @@
 #define DEFAULT_TEXT_FIT_WIDTH              (tft.getViewportWidth() * 0.8)    // used to control the available width value used to calculate the font size needed for a string of text to fit within that space
 
 #define SLEEP_AFTER                         (5 * 60 * 1000) // how many milliseconds of inactivity before going to sleep/hibernation (5 minutes is the default setting)
+#define POWER_OFF_HOLD_TIME                 10000           // hold Button 2 this many milliseconds to manually enter deep sleep
+#define BATTERY_CAPACITY_MAH                500             // used only for the time-to-empty estimate; change this to match your LiPo pack
+#define BATTERY_EST_ACTIVE_MA               140             // rough draw with display on and normal BLE use
+#define BATTERY_EST_BEACON_MA               120             // rough draw while advertising a beacon
+#define BATTERY_EST_SCAN_MA                 180             // rough draw while scanning/connecting
+#define BATTERY_EST_WIFI_MA                 210             // rough draw while Wi-Fi is connected
+#define BATTERY_EST_SCREENSAVER_MA          160             // rough draw for animated screensavers
+#define BATTERY_USB_POWER_MV                4300            // LiPo should not exceed this; higher readings are treated as USB/external power
 #define DEFAULT_BEACON_REACTION_TIME        2               // how many minutes to wait between reactions to the beacon being broadcast; ((esp_random() % 3) + 1)
 #define MAX_BEACON_CHANGE_INTERVAL          120             // this is multiplied by 10. should be no larger than 250.
 #define SHORT_PRESS_INTERVAL_INC            1               // this is multiplied by 10. 
@@ -357,6 +365,10 @@ const char msg_wait_times[]             = "WAIT TIMES";
 const char msg_wait_times_active[]      = "UPDATING";
 const char msg_wait_times_title[]       = "GE WAIT TIMES";
 const char msg_settings[]               = "SETTINGS";
+const char msg_battery[]                = "BATTERY";
+const char msg_battery_est[]            = "EST";
+const char msg_battery_left[]           = "LEFT";
+const char msg_powering_off[]           = "POWERING OFF";
 const char msg_wifi_connect[]           = "WIFI CONNECT";
 const char msg_wifi_status[]            = "WIFI STATUS";
 const char msg_wifi_off[]               = "WIFI OFF";
@@ -1125,6 +1137,7 @@ typedef enum {
   WAIT_TIMES_RESULTS,
 
   SETTINGS_MENU,
+  SETTINGS_BATTERY_STATUS,
   SETTINGS_WIFI_CONNECTING,
   SETTINGS_WIFI_STATUS,
   SETTINGS_WIFI_OFF,
@@ -1192,10 +1205,16 @@ const menu_item_t connected_menu[] = {
 };
 
 const menu_item_t settings_menu[] = {
+  { SETTINGS_BATTERY_STATUS,  msg_battery      },
   { SETTINGS_WIFI_CONNECTING, msg_wifi_connect },
   { SETTINGS_WIFI_STATUS,     msg_wifi_status  },
   { SETTINGS_WIFI_OFF,        msg_wifi_off     },
 };
+
+#define SETTINGS_MENU_INDEX_BATTERY      0
+#define SETTINGS_MENU_INDEX_WIFI_CONNECT 1
+#define SETTINGS_MENU_INDEX_WIFI_STATUS  2
+#define SETTINGS_MENU_INDEX_WIFI_OFF     3
 
 const menu_item_t screensaver_menu[] = {
   { SCREENSAVER_DEATH_STAR, msg_death_star },
@@ -1295,6 +1314,130 @@ uint32_t last_activity;         // keep track of the last time the user did some
 bool decode_transition_active = false;
 
 int8_t button_pins[] = {BUTTON1_PIN, BUTTON2_PIN};  // make the IO pins for buttons variables so we can change them in setup()
+
+typedef struct {
+  uint16_t millivolts;
+  uint8_t percent;
+  uint16_t minutes_to_empty;
+  bool external_power;
+} battery_status_t;
+
+typedef struct {
+  uint16_t millivolts;
+  uint8_t percent;
+} battery_curve_point_t;
+
+const battery_curve_point_t battery_curve[] = {
+  {3300,   0},
+  {3500,   5},
+  {3600,  10},
+  {3650,  20},
+  {3700,  30},
+  {3750,  40},
+  {3800,  50},
+  {3870,  60},
+  {3920,  70},
+  {4000,  80},
+  {4100,  90},
+  {4200, 100},
+};
+
+uint16_t battery_read_millivolts() {
+  const uint8_t samples = 8;
+  uint32_t total = 0;
+
+  for (uint8_t i = 0; i < samples; i++) {
+    total += analogRead(BAT_ADC_PIN);
+    delay(2);
+  }
+
+  // The T-Display battery input is divided by two before it reaches the ADC.
+  return (uint16_t)(((total / samples) * 6600UL + 2047) / 4095);
+}
+
+uint8_t battery_percent_from_millivolts(uint16_t millivolts) {
+  uint8_t last = (sizeof(battery_curve) / sizeof(battery_curve_point_t)) - 1;
+
+  if (millivolts <= battery_curve[0].millivolts) {
+    return battery_curve[0].percent;
+  }
+  if (millivolts >= battery_curve[last].millivolts) {
+    return battery_curve[last].percent;
+  }
+
+  for (uint8_t i = 1; i <= last; i++) {
+    if (millivolts <= battery_curve[i].millivolts) {
+      uint16_t mv_span = battery_curve[i].millivolts - battery_curve[i - 1].millivolts;
+      uint16_t mv_delta = millivolts - battery_curve[i - 1].millivolts;
+      uint8_t pct_span = battery_curve[i].percent - battery_curve[i - 1].percent;
+      return battery_curve[i - 1].percent + ((uint32_t)mv_delta * pct_span) / mv_span;
+    }
+  }
+
+  return 0;
+}
+
+uint16_t battery_estimated_current_ma() {
+  if (WiFi.status() == WL_CONNECTED || state == WAIT_TIMES_LOADING) {
+    return BATTERY_EST_WIFI_MA;
+  }
+
+  switch (state) {
+    case BEACON_ACTIVE:
+    case BEACON_EXPERT_ACTIVE:
+      return BATTERY_EST_BEACON_MA;
+
+    case SCANNER_SCANNING:
+    case SCANNER_CONNECTING:
+    case SCANNER_CONNECTED:
+      return BATTERY_EST_SCAN_MA;
+
+    case SCREENSAVER_DEATH_STAR:
+    case SCREENSAVER_HYPERSPACE:
+    case SCREENSAVER_TWIN_SUNS:
+      return BATTERY_EST_SCREENSAVER_MA;
+
+    default:
+      return BATTERY_EST_ACTIVE_MA;
+  }
+}
+
+battery_status_t battery_read_status() {
+  battery_status_t battery;
+  uint16_t current_ma;
+
+  battery.millivolts = battery_read_millivolts();
+  battery.external_power = battery.millivolts >= BATTERY_USB_POWER_MV;
+  battery.percent = battery.external_power ? 100 : battery_percent_from_millivolts(battery.millivolts);
+  battery.minutes_to_empty = 0;
+
+  if (!battery.external_power && battery.percent > 0) {
+    current_ma = battery_estimated_current_ma();
+    battery.minutes_to_empty = ((uint32_t)BATTERY_CAPACITY_MAH * battery.percent * 60) / (100UL * current_ma);
+  }
+
+  return battery;
+}
+
+uint16_t battery_level_color(const battery_status_t* battery) {
+  if (battery->external_power || battery->percent >= 60) {
+    return C565(0,128,0);
+  }
+  if (battery->percent >= 25) {
+    return C565(96,96,0);
+  }
+  return C565(128,0,0);
+}
+
+void battery_format_time(char* msg, size_t msg_len, uint16_t minutes) {
+  if (minutes == 0) {
+    snprintf(msg, msg_len, "<1 MIN");
+  } else if (minutes < 60) {
+    snprintf(msg, msg_len, "%u MIN", (unsigned int)minutes);
+  } else {
+    snprintf(msg, msg_len, "%uH %02uM", (unsigned int)(minutes / 60), (unsigned int)(minutes % 60));
+  }
+}
 
 //
 // rendering lists is done with an array of strings (the items in the list)
@@ -3135,11 +3278,12 @@ void display_beacon_control() {
 
 // display the splash screen seen when the program starts
 void display_splash() {
-  uint16_t y, c, batt_mv;
+  uint16_t y, c;
   uint16_t w = tft.getViewportWidth();
   uint16_t h = tft.getViewportHeight();
   uint16_t footer_y;
   char msg[MSG_LEN_MAX];
+  battery_status_t battery = battery_read_status();
 
   // The startup screen is tiny on the original T-Display, so keep it as a
   // compact poster instead of trying to fit full attribution strings.
@@ -3160,22 +3304,12 @@ void display_splash() {
   y += tft.fontHeight() + 2;
   dtb_draw_string(msg_continue2, w / 2, y, w - 18, 1, DEFAULT_TEXT_COLOR, TC_DATUM);
 
-  // battery voltage
-  batt_mv = (analogRead(BAT_ADC_PIN) * 2 * 3.3 * 1000) / 4096;
-  c = SPLASH_VERSION_COLOR;
-  if (batt_mv < 3400) {
-    c = C565(128,0,0);        // need to charge the battery
-  } else if (batt_mv < 3800) {
-    c = C565(96,96,0);        // battery is getting low
-  } else if (batt_mv < 4400) {
-    c = C565(0,128,0);        // battery is charged
-  } else {
-    c = SPLASH_VERSION_COLOR; // you're probably on USB
-  }
+  // battery charge
+  c = battery_level_color(&battery);
 
   tft.drawFastHLine(10, footer_y - 5, w - 20, SPLASH_VERSION_COLOR);
 
-  snprintf(msg, MSG_LEN_MAX, "%s %.2fV", (batt_mv < 4400 ? "BAT" : "PWR"), (batt_mv / (float)1000));
+  snprintf(msg, MSG_LEN_MAX, "%s %d%%", (battery.external_power ? "PWR" : "BAT"), battery.percent);
   dtb_draw_string(msg, 2, footer_y, w / 3, 1, c, TL_DATUM);
   dtb_draw_string(msg_splash_mod, w / 2, footer_y, w / 3, 1, SPLASH_VERSION_COLOR, TC_DATUM);
   dtb_draw_string(msg_version, w - 2, footer_y, w / 3, 1, SPLASH_VERSION_COLOR, TR_DATUM);
@@ -3313,6 +3447,43 @@ void display_wait_times() {
   }
 
   dtb_draw_string(msg_queue_times_source, 0, tft.getViewportHeight(), tft.getViewportWidth()/2, 1, DEFAULT_TEXT_COLOR, BL_DATUM);
+}
+
+void display_battery_settings() {
+  char msg[MSG_LEN_MAX];
+  char time_msg[16];
+  uint16_t y;
+  battery_status_t battery = battery_read_status();
+  uint16_t charge_color = battery_level_color(&battery);
+
+  dtb_draw_string(msg_battery, tft.getViewportWidth()/2, 0, DEFAULT_TEXT_FIT_WIDTH, DEFAULT_TEXT_SIZE, TFT_ORANGE, TC_DATUM);
+
+  tft.setTextSize(1);
+  y = tft.fontHeight() + 12;
+
+  if (battery.external_power) {
+    dtb_draw_string("USB POWER", tft.getViewportWidth()/2, y, DEFAULT_TEXT_FIT_WIDTH, DEFAULT_TEXT_SIZE + 1, ACTION_RESULT_OK_TEXT_COLOR, TC_DATUM);
+    y += tft.fontHeight() + 8;
+  } else {
+    snprintf(msg, MSG_LEN_MAX, "%d%%", battery.percent);
+    dtb_draw_string(msg, tft.getViewportWidth()/2, y, DEFAULT_TEXT_FIT_WIDTH, ACTION_TEXT_SIZE, charge_color, TC_DATUM);
+    y += tft.fontHeight() + 8;
+  }
+
+  snprintf(msg, MSG_LEN_MAX, "%.2fV", battery.millivolts / 1000.0f);
+  dtb_draw_string(msg, tft.getViewportWidth()/2, y, DEFAULT_TEXT_FIT_WIDTH, DEFAULT_TEXT_SIZE + 1, DEFAULT_SELECTED_TEXT_COLOR, TC_DATUM);
+  y += tft.fontHeight() + 8;
+
+  if (battery.external_power) {
+    dtb_draw_string("TIME EST PAUSED", tft.getViewportWidth()/2, y, DEFAULT_TEXT_FIT_WIDTH, DEFAULT_TEXT_SIZE, DEFAULT_TEXT_COLOR, TC_DATUM);
+  } else {
+    battery_format_time(time_msg, sizeof(time_msg), battery.minutes_to_empty);
+    snprintf(msg, MSG_LEN_MAX, "%s %s %s", msg_battery_est, time_msg, msg_battery_left);
+    dtb_draw_string(msg, tft.getViewportWidth()/2, y, DEFAULT_TEXT_FIT_WIDTH, DEFAULT_TEXT_SIZE, DEFAULT_TEXT_COLOR, TC_DATUM);
+  }
+
+  snprintf(msg, MSG_LEN_MAX, "CAP %dmAh", BATTERY_CAPACITY_MAH);
+  dtb_draw_string(msg, tft.getViewportWidth()/2, tft.getViewportHeight(), DEFAULT_TEXT_FIT_WIDTH, 1, DEFAULT_TEXT_COLOR, BC_DATUM);
 }
 
 void display_wifi_settings() {
@@ -4102,6 +4273,10 @@ void render_current_screen() {
       display_captioned_menu(msg_settings, LIST_SETTINGS_MENU);
       break;
 
+    case SETTINGS_BATTERY_STATUS:
+      display_battery_settings();
+      break;
+
     case SETTINGS_WIFI_CONNECTING:
     case SETTINGS_WIFI_STATUS:
     case SETTINGS_WIFI_OFF:
@@ -4248,6 +4423,37 @@ void update_display() {
 
   last_rendered_state = (int16_t)state;
   tft_update = false;
+}
+
+void dtb_power_off() {
+  SERIAL_PRINTLN("Manual power off requested.");
+
+  if (pAdvertising != nullptr) {
+    pAdvertising->stop();
+  }
+  if (pBLEScan != nullptr) {
+    pBLEScan->stop();
+  }
+  if (pClient != nullptr && pClient->isConnected()) {
+    droid_disconnect();
+  }
+
+  WiFi.disconnect(false);
+  WiFi.mode(WIFI_OFF);
+
+  reset_screen();
+  dtb_draw_string(msg_powering_off,
+    tft.getViewportWidth()/2, (tft.getViewportHeight()/2) - (dtb_get_font_height()/2), DEFAULT_TEXT_FIT_WIDTH, ACTION_TEXT_SIZE, ACTION_TEXT_COLOR, TC_DATUM
+  );
+
+  delay(700);
+
+  #ifdef TFT_BL
+    pinMode(TFT_BL, OUTPUT);
+    digitalWrite(TFT_BL, (TFT_BACKLIGHT_ON == HIGH ? LOW : HIGH));
+  #endif
+
+  esp_deep_sleep_start();
 }
 
 void button1(button_press_t press_type);  // trying to use an enum as a parameter triggers a bug in arduino. adding an explicit prototype resolves the issue.
@@ -4568,6 +4774,10 @@ void button1(button_press_t press_type) {
     case SETTINGS_MENU:
       state = settings_menu[selected_item].state;
       selected_item = 0;
+      tft_update = true;
+      break;
+
+    case SETTINGS_BATTERY_STATUS:
       tft_update = true;
       break;
 
@@ -4937,11 +5147,27 @@ void button2(button_press_t press_type) {
       tft_update = true;
       break;
 
+    case SETTINGS_BATTERY_STATUS:
+      state = SETTINGS_MENU;
+      selected_item = SETTINGS_MENU_INDEX_BATTERY;
+      tft_update = true;
+      break;
+
     case SETTINGS_WIFI_CONNECTING:
+      state = SETTINGS_MENU;
+      selected_item = SETTINGS_MENU_INDEX_WIFI_CONNECT;
+      tft_update = true;
+      break;
+
     case SETTINGS_WIFI_STATUS:
+      state = SETTINGS_MENU;
+      selected_item = SETTINGS_MENU_INDEX_WIFI_STATUS;
+      tft_update = true;
+      break;
+
     case SETTINGS_WIFI_OFF:
       state = SETTINGS_MENU;
-      selected_item = 0;
+      selected_item = SETTINGS_MENU_INDEX_WIFI_OFF;
       tft_update = true;
       break;
 
@@ -5064,6 +5290,7 @@ void button1_handler() {
 void button2_handler() {
   static uint32_t last_btn2_time = 0;
   static uint8_t last_btn2_state = BTN_UP_STATE;
+  static bool power_off_hold_fired = false;
 
   // gather current state of things
   uint8_t now_btn2_state = digitalRead(button_pins[1]);
@@ -5071,15 +5298,26 @@ void button2_handler() {
 
   if (now_btn2_state != last_btn2_state && now_time - last_btn2_time > LAZY_DEBOUNCE) {
     if (now_btn2_state == BTN_UP_STATE) {
-      if (now_time - last_btn2_time > SHORT_PRESS_TIME) {
-        button2(LONG_PRESS);
-      } else {
-        button2(SHORT_PRESS);
+      if (!power_off_hold_fired) {
+        if (now_time - last_btn2_time > SHORT_PRESS_TIME) {
+          button2(LONG_PRESS);
+        } else {
+          button2(SHORT_PRESS);
+        }
       }
+      power_off_hold_fired = false;
+    } else {
+      power_off_hold_fired = false;
     }
     last_btn2_state = now_btn2_state;
     last_btn2_time = now_time;
     last_activity = millis();
+  }
+
+  if (now_btn2_state != BTN_UP_STATE && !power_off_hold_fired && now_time - last_btn2_time >= POWER_OFF_HOLD_TIME) {
+    power_off_hold_fired = true;
+    last_activity = now_time;
+    dtb_power_off();
   }
 }
 
@@ -5252,6 +5490,8 @@ void setup() {
   if (button_pins[1] >= 0) {
     pinMode(button_pins[1], INPUT);
   }
+  pinMode(BAT_ADC_PIN, INPUT);
+  analogReadResolution(12);
 
   // if defined, enable wakeup button
   #ifdef WAKEUP_BUTTON
