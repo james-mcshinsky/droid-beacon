@@ -58,6 +58,9 @@ your own risk.
   to GitHub.
 - Connect to Wi-Fi, show Wi-Fi status, and turn Wi-Fi off from the Settings
   menu.
+- Show battery charge, voltage, and a rough estimated time to empty from the
+  Settings menu.
+- Hold Button 2 for 10 seconds to manually put the device into deep sleep.
 - Show randomized Star Wars trivia questions and answers.
 - Run themed screensavers:
   - Rotating low-poly Death Star
@@ -188,10 +191,13 @@ Button presses are handled on release.
 ## Startup Screen
 
 On boot, the splash screen shows the project title, firmware version, and battery
-or USB power voltage. Press either button to enter the main menu.
+charge. Press either button to enter the main menu.
 
 If a droid was previously connected and saved, hold Button 2 on the splash
 screen to quick-connect to that saved droid.
+
+Holding Button 2 for 10 seconds from any screen puts the device into deep sleep.
+Wake it again with Button 1 or the reset button.
 
 ## Main Menu
 
@@ -206,6 +212,15 @@ Top-level options include:
 - `TRIVIA`
 - `SCREENSAVER`
 - `SETTINGS`
+
+## Battery
+
+The Settings menu includes `BATTERY`, which shows charge percentage, battery
+voltage, and an estimated time to empty.
+
+The board only exposes battery voltage, not a hardware fuel gauge, so the time
+estimate is intentionally approximate. If your battery is not 500 mAh, update
+`BATTERY_CAPACITY_MAH` in `Droid-Toolbox.ino` and upload again.
 
 ## Scanner
 
